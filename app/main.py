@@ -1,19 +1,25 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Depends, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db, engine
 from app.db.base import Base
-from app.models.ticket import Ticket
 from app.schemas.ticket import TicketCreate, TicketResponse
 from app.services.ai_analyzer import analyze_ticket_text
+from app.api.tickets import router as tickets_router
 
-app = FastAPI(title="AI Support Analyzer")
 
-
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    yield
+
+
+app = FastAPI(title="AI Support Analyzer", lifespan=lifespan)
+
+app.include_router(tickets_router)
 
 
 @app.get("/")
@@ -26,6 +32,7 @@ async def create_ticket(request: TicketCreate = Body(...), db: AsyncSession = De
     try:
         ai_data = await analyze_ticket_text(request.text)
 
+        from app.models.ticket import Ticket
         new_ticket = Ticket(
             customer_text=request.text,
             category=ai_data.get("category"),
